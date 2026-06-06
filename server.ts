@@ -1,18 +1,24 @@
 import express from "express";
 import path from "path";
 import fs from "fs";
+import os from "os";
 import { spawn } from "child_process";
 import ffmpegStatic from "ffmpeg-static";
 import { createServer as createViteServer } from "vite";
 import { rimraf } from "rimraf";
 
+// Export the app for serverless environments (like Vercel)
+export const app = express();
+
 // Store conversion logs globally (taskId -> logs)
 const conversionLogs = new Map<string, string[]>();
 
 // yt-dlp configuration
+// On serverless environments like Vercel, only /tmp is writable
+const tmpDir = os.tmpdir();
 const YT_DLP_URL = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp";
-const YT_DLP_PATH = path.join(process.cwd(), "yt-dlp");
-const DOWNLOADS_DIR = path.join(process.cwd(), "downloads");
+const YT_DLP_PATH = path.join(tmpDir, "yt-dlp");
+const DOWNLOADS_DIR = path.join(tmpDir, "downloads");
 
 // Ensure downloads directory exists
 if (!fs.existsSync(DOWNLOADS_DIR)) {
@@ -41,7 +47,6 @@ async function downloadYtDlp() {
 }
 
 async function startServer() {
-  const app = express();
   const PORT = 3000;
 
   app.use(express.json());
@@ -78,18 +83,30 @@ async function startServer() {
       
       // Handle Cookies
       let cookieArgs: string[] = [];
-      const cookiesFilePath = path.join(process.cwd(), "cookies.txt");
+      const tmpCookiesPath = path.join(tmpDir, "cookies.txt");
+      const rootCookiesPath = path.join(process.cwd(), "cookies.txt");
       
-      if (process.env.YOUTUBE_COOKIES) {
-        // If passed via environment variable (best for deployment)
-        fs.writeFileSync(cookiesFilePath, process.env.YOUTUBE_COOKIES);
-      }
-      
-      if (fs.existsSync(cookiesFilePath)) {
-        cookieArgs = ["--cookies", cookiesFilePath];
-        conversionLogs.get(trackId)?.push(`Using authentication cookies to bypass bot protection.`);
+      if (fs.existsSync(rootCookiesPath)) {
+        // If user uploaded cookies.txt to project root
+        cookieArgs = ["--cookies", rootCookiesPath];
+        conversionLogs.get(trackId)?.push(`Using authentication cookies from project root 'cookies.txt'.`);
+      } else if (process.env.YOUTUBE_COOKIES) {
+        // If passed via environment variable (useful for Vercel, but formatting can break)
+        // Fix potential newline issues where literal \n was pasted
+        const formattedCookies = process.env.YOUTUBE_COOKIES.replace(/\\n/g, '\n');
+        fs.writeFileSync(tmpCookiesPath, formattedCookies);
+        cookieArgs = ["--cookies", tmpCookiesPath];
+        conversionLogs.get(trackId)?.push(`Using authentication cookies from environment variable.`);
       } else {
         conversionLogs.get(trackId)?.push(`Warning: No cookies found. YouTube might block the download.`);
+      }
+
+      // If we use cookies from a desktop browser, override player clients that would trigger bot flags
+      let extractorArgs = ["--extractor-args", "youtube:player_client=ios,tv"];
+      if (cookieArgs.length > 0) {
+        // We use default web client if desktop cookies are provided, or android_creator
+        extractorArgs = ["--extractor-args", "youtube:player_client=web,default"];
+        conversionLogs.get(trackId)?.push(`Switched to desktop player clients to match cookies.`);
       }
 
       // Execute yt-dlp
@@ -99,9 +116,10 @@ async function startServer() {
         "-x",
         "--audio-format", "mp3",
         "--audio-quality", "128K",
+        "--no-playlist",
         "--ffmpeg-location", ffmpegStatic || "",
         "--js-runtimes", "node:/usr/local/bin/node",
-        "--extractor-args", "youtube:player_client=ios,android", 
+        ...extractorArgs, 
         ...cookieArgs,
         "-o", outputFileTemplate,
         url
@@ -193,9 +211,13 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-  });
+  // If we are not in a serverless environment like Vercel, start the server
+  if (!process.env.VERCEL) {
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`Server running on http://localhost:${PORT}`);
+    });
+  }
 }
 
+// Ensure the server module is executed correctly for local usage
 startServer();
