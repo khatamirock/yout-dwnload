@@ -76,6 +76,22 @@ async function startServer() {
       console.log(`Starting yt-dlp for url: ${url} tracking ID: ${trackId}`);
       conversionLogs.set(trackId, [`Initialized download task ${trackId}`, `Target URL: ${url}`]);
       
+      // Handle Cookies
+      let cookieArgs: string[] = [];
+      const cookiesFilePath = path.join(process.cwd(), "cookies.txt");
+      
+      if (process.env.YOUTUBE_COOKIES) {
+        // If passed via environment variable (best for deployment)
+        fs.writeFileSync(cookiesFilePath, process.env.YOUTUBE_COOKIES);
+      }
+      
+      if (fs.existsSync(cookiesFilePath)) {
+        cookieArgs = ["--cookies", cookiesFilePath];
+        conversionLogs.get(trackId)?.push(`Using authentication cookies to bypass bot protection.`);
+      } else {
+        conversionLogs.get(trackId)?.push(`Warning: No cookies found. YouTube might block the download.`);
+      }
+
       // Execute yt-dlp
       // Using arguments explicitly from user: -x --audio-format mp3 --audio-quality 128K
       // Also specifying ffmpeg location to avoid "ffmpeg not found"
@@ -86,6 +102,7 @@ async function startServer() {
         "--ffmpeg-location", ffmpegStatic || "",
         "--js-runtimes", "node:/usr/local/bin/node",
         "--extractor-args", "youtube:player_client=ios,android", 
+        ...cookieArgs,
         "-o", outputFileTemplate,
         url
       ];
