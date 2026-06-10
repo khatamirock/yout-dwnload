@@ -5,7 +5,6 @@ import os from "os";
 import { spawn } from "child_process";
 import ffmpegStatic from "ffmpeg-static";
 import ffprobeStatic from "ffprobe-static";
-import { createServer as createViteServer } from "vite";
 import { rimraf } from "rimraf";
 
 // Export the app for serverless environments (like Vercel)
@@ -262,6 +261,7 @@ app.get("/api/download", async (req, res) => {
   // Setup Vite middleware for development and static files in production
   async function setupViteAndListen() {
     if (process.env.NODE_ENV !== "production" && !process.env.VERCEL) {
+      const { createServer: createViteServer } = await import("vite");
       const vite = await createViteServer({
         server: { middlewareMode: true },
         appType: "spa",
