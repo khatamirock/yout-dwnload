@@ -66,7 +66,8 @@ app.use(express.json());
 app.get("/api/logs", (req, res) => {
   const taskId = req.query.taskId as string;
   if (!taskId) return res.json({ logs: [] });
-  return res.json({ logs: conversionLogs.get(taskId) || [] });
+  const logs = conversionLogs.get(taskId) || [];
+  return res.json({ logs: logs.slice(-100) });
 });
 
 // Background initialization of yt-dlp
