@@ -6,3 +6,6 @@ coverage/
 *.log
 .env*
 !.env.example
+yt-dlp
+cookies.txt
+downloads/

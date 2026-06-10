@@ -12,6 +12,11 @@ export default function App() {
   const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [errorMessage, setErrorMessage] = useState('');
   
+  // Settings
+  const [type, setType] = useState<'audio' | 'video'>('audio');
+  const [videoFormat, setVideoFormat] = useState<'mp4' | 'webm'>('mp4');
+  const [videoQuality, setVideoQuality] = useState<'720' | '1080' | 'best'>('1080');
+  
   // Logs states
   const [taskId, setTaskId] = useState<string | null>(null);
   const [showLogs, setShowLogs] = useState(false);
@@ -54,6 +59,10 @@ export default function App() {
     }
   }, [logs, showLogs]);
 
+  // Calculate progress from logs
+  const latestProgressMatch = [...logs].reverse().find(l => l.match(/\[download\]\s+(\d+\.?\d*)%/));
+  const progressPercent = latestProgressMatch ? parseFloat(latestProgressMatch.match(/\[download\]\s+(\d+\.?\d*)%/)?.[1] || '0') : 0;
+
   const handleDownload = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!url) return;
@@ -65,7 +74,12 @@ export default function App() {
     setErrorMessage('');
 
     try {
-      const response = await fetch(`/api/download?url=${encodeURIComponent(url)}&taskId=${newTaskId}`);
+      let queryParams = `url=${encodeURIComponent(url)}&taskId=${newTaskId}&type=${type}`;
+      if (type === 'video') {
+        queryParams += `&format=${videoFormat}&quality=${videoQuality}`;
+      }
+
+      const response = await fetch(`/api/download?${queryParams}`);
       
       if (!response.ok) {
         const errorData = await response.json().catch(() => null);
@@ -80,8 +94,8 @@ export default function App() {
       a.href = downloadUrl;
       
       // Get filename from header if possible, else default
+      let filename = type === 'audio' ? 'audio.mp3' : `video.${videoFormat}`;
       const contentDisposition = response.headers.get('content-disposition');
-      let filename = 'audio.mp3';
       if (contentDisposition && contentDisposition.includes('filename=')) {
         const matches = contentDisposition.match(/filename="?([^"]+)"?/);
         if (matches && matches[1]) {
@@ -148,9 +162,38 @@ export default function App() {
             <p className="text-zinc-400">Paste your YouTube link to begin lossless MP3 conversion.</p>
           </div>
 
+          {/* Type Toggle */}
+          <div className="flex justify-center space-x-6">
+            <button
+              type="button"
+              onClick={() => setType('audio')}
+              className={`text-sm font-bold uppercase tracking-widest pb-1 transition-colors ${
+                type === 'audio' ? 'text-red-500 border-b-2 border-red-500' : 'text-zinc-600 hover:text-zinc-400'
+              }`}
+            >
+              Audio
+            </button>
+            <button
+              type="button"
+              onClick={() => setType('video')}
+              className={`text-sm font-bold uppercase tracking-widest pb-1 transition-colors ${
+                type === 'video' ? 'text-red-500 border-b-2 border-red-500' : 'text-zinc-600 hover:text-zinc-400'
+              }`}
+            >
+              Video
+            </button>
+          </div>
+
           <form onSubmit={handleDownload} className="relative group">
             <div className="absolute -inset-1 bg-gradient-to-r from-red-600 to-orange-600 rounded-2xl blur opacity-25 group-focus-within:opacity-50 transition duration-300"></div>
-            <div className="relative flex flex-col sm:flex-row items-center bg-[#0d0d10] border border-white/10 rounded-xl p-2 gap-2 sm:gap-0">
+            <div className="relative flex flex-col sm:flex-row items-center bg-[#0d0d10] border border-white/10 rounded-xl p-2 gap-2 sm:gap-0 overflow-hidden">
+              {/* Progress Bar Background Glow */}
+              {status === 'loading' && progressPercent > 0 && (
+                <div 
+                  className="absolute bottom-0 left-0 h-1 bg-gradient-to-r from-red-500 to-orange-500 transition-all duration-300 ease-out z-0"
+                  style={{ width: `${progressPercent}%` }}
+                />
+              )}
               <input 
                 type="url" 
                 required
@@ -175,7 +218,7 @@ export default function App() {
                       className="flex items-center gap-2"
                     >
                       <Loader2 className="w-5 h-5 animate-spin" />
-                      <span>Extracting...</span>
+                      <span>{progressPercent > 0 ? `${progressPercent.toFixed(0)}%` : 'Extracting...'}</span>
                     </motion.div>
                   ) : status === 'success' ? (
                     <motion.div
@@ -203,19 +246,66 @@ export default function App() {
             </div>
           </form>
 
-          {/* Conversion Settings (Visual only based on UI theme) */}
-          <div className="flex justify-center items-center space-x-4 sm:space-x-8 text-[10px] sm:text-xs font-bold uppercase tracking-[0.2em] text-zinc-500">
-            <div className="flex items-center space-x-2 cursor-pointer text-red-500 border-b border-red-500/50 pb-1">
-              <span>MP3</span>
+          {/* Conversion Settings */}
+          {type === 'audio' ? (
+            <div className="flex justify-center items-center space-x-4 sm:space-x-8 text-[10px] sm:text-xs font-bold uppercase tracking-[0.2em] text-zinc-500">
+              <div className="flex items-center space-x-2 text-red-500 bg-red-500/10 px-3 py-1 rounded">
+                <span>MP3</span>
+              </div>
+              <div className="flex items-center space-x-2 opacity-50 cursor-not-allowed">
+                <span>WAV</span>
+              </div>
+              <div className="h-4 w-[1px] bg-white/10"></div>
+              <div className="flex items-center space-x-2 text-white px-2 py-0.5 rounded bg-white/10">
+                <span>128K</span>
+              </div>
             </div>
-            <div className="flex items-center space-x-2 cursor-default opacity-50 cursor-not-allowed">
-              <span>WAV</span>
+          ) : (
+            <div className="flex flex-wrap justify-center items-center gap-4 text-[10px] sm:text-xs font-bold uppercase tracking-[0.2em]">
+              {/* Format selection */}
+              <div className="flex space-x-2 p-1 bg-white/5 rounded-lg border border-white/10">
+                <button
+                  type="button"
+                  onClick={() => setVideoFormat('mp4')}
+                  className={`px-3 py-1 rounded transition-colors ${videoFormat === 'mp4' ? 'bg-red-500/20 text-red-400' : 'text-zinc-500 hover:text-zinc-300'}`}
+                >
+                  MP4
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setVideoFormat('webm')}
+                  className={`px-3 py-1 rounded transition-colors ${videoFormat === 'webm' ? 'bg-red-500/20 text-red-400' : 'text-zinc-500 hover:text-zinc-300'}`}
+                >
+                  WEBM
+                </button>
+              </div>
+              <div className="h-4 w-[1px] bg-white/10"></div>
+              {/* Quality selection */}
+              <div className="flex space-x-2 p-1 bg-white/5 rounded-lg border border-white/10">
+                <button
+                  type="button"
+                  onClick={() => setVideoQuality('720')}
+                  className={`px-3 py-1 rounded transition-colors ${videoQuality === '720' ? 'bg-white/20 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
+                >
+                  720P
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setVideoQuality('1080')}
+                  className={`px-3 py-1 rounded transition-colors ${videoQuality === '1080' ? 'bg-white/20 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
+                >
+                  1080P
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setVideoQuality('best')}
+                  className={`px-3 py-1 rounded transition-colors ${videoQuality === 'best' ? 'bg-white/20 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
+                >
+                  BEST
+                </button>
+              </div>
             </div>
-            <div className="h-4 w-[1px] bg-white/10"></div>
-            <div className="flex items-center space-x-2 cursor-pointer text-white px-2 py-0.5 rounded bg-white/10">
-              <span>128K</span>
-            </div>
-          </div>
+          )}
           
           <AnimatePresence>
             {status === 'error' && (

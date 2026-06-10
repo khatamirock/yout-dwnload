@@ -4,6 +4,7 @@ import fs from "fs";
 import os from "os";
 import { spawn } from "child_process";
 import ffmpegStatic from "ffmpeg-static";
+import ffprobeStatic from "ffprobe-static";
 import { createServer as createViteServer } from "vite";
 import { rimraf } from "rimraf";
 
@@ -19,10 +20,22 @@ const tmpDir = os.tmpdir();
 const YT_DLP_URL = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp";
 const YT_DLP_PATH = path.join(tmpDir, "yt-dlp");
 const DOWNLOADS_DIR = path.join(tmpDir, "downloads");
+const FFMPEG_DIR = path.join(tmpDir, "ffmpeg-bin");
 
-// Ensure downloads directory exists
-if (!fs.existsSync(DOWNLOADS_DIR)) {
-  fs.mkdirSync(DOWNLOADS_DIR, { recursive: true });
+// Ensure directories exist
+if (!fs.existsSync(DOWNLOADS_DIR)) fs.mkdirSync(DOWNLOADS_DIR, { recursive: true });
+if (!fs.existsSync(FFMPEG_DIR)) fs.mkdirSync(FFMPEG_DIR, { recursive: true });
+
+// Setup symlinks so yt-dlp finds both ffmpeg and ffprobe in one directory
+try {
+  if (ffmpegStatic && !fs.existsSync(path.join(FFMPEG_DIR, "ffmpeg"))) {
+    fs.symlinkSync(ffmpegStatic, path.join(FFMPEG_DIR, "ffmpeg"));
+  }
+  if (ffprobeStatic.path && !fs.existsSync(path.join(FFMPEG_DIR, "ffprobe"))) {
+    fs.symlinkSync(ffprobeStatic.path, path.join(FFMPEG_DIR, "ffprobe"));
+  }
+} catch (err) {
+  // ignore symlink errors
 }
 
 async function downloadYtDlp() {
@@ -78,8 +91,26 @@ async function startServer() {
       const trackId = (req.query.taskId as string) || Math.random().toString(36).substring(7);
       const outputFileTemplate = path.join(DOWNLOADS_DIR, `%(title)s-[${trackId}].%(ext)s`);
       
-      console.log(`Starting yt-dlp for url: ${url} tracking ID: ${trackId}`);
-      conversionLogs.set(trackId, [`Initialized download task ${trackId}`, `Target URL: ${url}`]);
+      // Get download preferences
+      const type = (req.query.type as string) || 'audio';
+      const formatParam = (req.query.format as string) || 'mp4';
+      const qualityParam = (req.query.quality as string) || '1080';
+
+      // Ensure yt-dlp has finished, let's find the resulting file
+      const findDownloadedFile = () => {
+        const files = fs.readdirSync(DOWNLOADS_DIR);
+        // We look for any file containing our trackId, since extensions can vary (mp3, mp4, webm)
+        return files.find(f => f.includes(`[${trackId}]`));
+      };
+      
+      // Cleanup any pre-existing files for this trackId just to be safe
+      const existingFile = findDownloadedFile();
+      if (existingFile) {
+        fs.unlinkSync(path.join(DOWNLOADS_DIR, existingFile));
+      }
+
+      console.log(`Starting yt-dlp for url: ${url} tracking ID: ${trackId} type: ${type}`);
+      conversionLogs.set(trackId, [`Initialized download task ${trackId}`, `Target URL: ${url}`, `Type: ${type}`]);
       
       // Handle Cookies
       let cookieArgs: string[] = [];
@@ -110,14 +141,49 @@ async function startServer() {
       }
 
       // Execute yt-dlp
-      // Using arguments explicitly from user: -x --audio-format mp3 --audio-quality 128K
       // Also specifying ffmpeg location to avoid "ffmpeg not found"
+      let modeArgs: string[] = [];
+      
+      if (type === 'audio') {
+        // Keep EXACT audio arguments from the previous versions!
+        modeArgs = [
+          "-x",
+          "--audio-format", "mp3",
+          "--audio-quality", "128K"
+        ];
+      } else {
+        // Video mode arguments
+        const safeFormat = formatParam === 'webm' ? 'webm' : 'mp4';
+        let formatString = 'bestvideo+bestaudio/best';
+        let sortArgs: string[] = [];
+        
+        if (qualityParam === '1080') {
+           formatString = `bv*[height<=1080]+ba/b`;
+        } else if (qualityParam === '720') {
+           formatString = `bv*[height<=720]+ba/b`;
+        }
+
+        // To prevent slow ffmpeg transcoding on Cloud Run, we prefer codecs 
+        // that natively match the requested container format.
+        // We put "res" first so it doesn't choose a lower resolution just to get the codec.
+        if (safeFormat === 'mp4') {
+          sortArgs = ["-S", "res,vcodec:h264,acodec:m4a"];
+        } else {
+          sortArgs = ["-S", "res,vcodec:vp9,acodec:opus"];
+        }
+
+        modeArgs = [
+          "-f", formatString,
+          ...sortArgs,
+          "--merge-output-format", safeFormat,
+          "--concurrent-fragments", "4"
+        ];
+      }
+
       const args = [
-        "-x",
-        "--audio-format", "mp3",
-        "--audio-quality", "128K",
+        ...modeArgs,
         "--no-playlist",
-        "--ffmpeg-location", ffmpegStatic || "",
+        "--ffmpeg-location", FFMPEG_DIR,
         "--js-runtimes", "node:/usr/local/bin/node",
         ...extractorArgs, 
         ...cookieArgs,
@@ -160,12 +226,11 @@ async function startServer() {
         });
       });
 
-      // yt-dlp has finished, let's find the resulting mp3 file
-      const files = fs.readdirSync(DOWNLOADS_DIR);
-      const downloadedFile = files.find(f => f.includes(`[${trackId}]`) && f.endsWith(".mp3"));
+      // yt-dlp has finished, let's find the resulting file
+      const downloadedFile = findDownloadedFile();
 
       if (!downloadedFile) {
-        throw new Error("Download completed but MP3 file not found.");
+        throw new Error("Download completed but resulting file not found.");
       }
 
       const filePath = path.join(DOWNLOADS_DIR, downloadedFile);
