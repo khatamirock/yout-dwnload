@@ -59,23 +59,22 @@ async function downloadYtDlp() {
   console.log("yt-dlp downloaded and made executable.");
 }
 
-async function startServer() {
-  const PORT = 3000;
+const PORT = 3000;
 
-  app.use(express.json());
+app.use(express.json());
 
-  // Real-time logs endpoint
-  app.get("/api/logs", (req, res) => {
-    const taskId = req.query.taskId as string;
-    if (!taskId) return res.json({ logs: [] });
-    return res.json({ logs: conversionLogs.get(taskId) || [] });
-  });
+// Real-time logs endpoint
+app.get("/api/logs", (req, res) => {
+  const taskId = req.query.taskId as string;
+  if (!taskId) return res.json({ logs: [] });
+  return res.json({ logs: conversionLogs.get(taskId) || [] });
+});
 
-  // Background initialization of yt-dlp
-  downloadYtDlp().catch(console.error);
+// Background initialization of yt-dlp
+downloadYtDlp().catch(console.error);
 
-  // API Route to download MP3
-  app.get("/api/download", async (req, res) => {
+// API Route to download MP3
+app.get("/api/download", async (req, res) => {
     try {
       const url = req.query.url;
       if (!url || typeof url !== "string") {
@@ -260,29 +259,31 @@ async function startServer() {
     }
   });
 
-  // Vite middleware for development
-  if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
-  } else {
-    // Production static serving
-    const distPath = path.join(process.cwd(), "dist");
-    app.use(express.static(distPath));
-    app.get("*", (req, res) => {
-      res.sendFile(path.join(distPath, "index.html"));
-    });
+  // Setup Vite middleware for development and static files in production
+  async function setupViteAndListen() {
+    if (process.env.NODE_ENV !== "production" && !process.env.VERCEL) {
+      const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: "spa",
+      });
+      app.use(vite.middlewares);
+    } else {
+      // Production static serving
+      const distPath = path.join(process.cwd(), "dist");
+      app.use(express.static(distPath));
+      app.get("*", (req, res) => {
+        res.sendFile(path.join(distPath, "index.html"));
+      });
+    }
+
+    // If we are not in a serverless environment like Vercel, start the server
+    if (!process.env.VERCEL) {
+      app.listen(PORT, "0.0.0.0", () => {
+        console.log(`Server running on http://localhost:${PORT}`);
+      });
+    }
   }
 
-  // If we are not in a serverless environment like Vercel, start the server
-  if (!process.env.VERCEL) {
-    app.listen(PORT, "0.0.0.0", () => {
-      console.log(`Server running on http://localhost:${PORT}`);
-    });
-  }
-}
-
-// Ensure the server module is executed correctly for local usage
-startServer();
+  setupViteAndListen();
+  
+  export default app;
