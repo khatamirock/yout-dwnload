@@ -182,7 +182,7 @@ app.get("/api/download", async (req, res) => {
         ...modeArgs,
         "--no-playlist",
         "--ffmpeg-location", FFMPEG_DIR,
-        "--js-runtimes", "node:/usr/local/bin/node",
+        "--js-runtimes", `node:${process.execPath}`,
         ...extractorArgs, 
         ...cookieArgs,
         "-o", outputFileTemplate,
