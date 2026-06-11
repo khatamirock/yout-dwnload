@@ -70,8 +70,19 @@ app.get("/api/logs", (req, res) => {
   return res.json({ logs: logs.slice(-100) });
 });
 
+let downloadPromise: Promise<void> | null = null;
+async function ensureYtDlp() {
+  if (fs.existsSync(YT_DLP_PATH)) {
+    return;
+  }
+  if (!downloadPromise) {
+    downloadPromise = downloadYtDlp().finally(() => { downloadPromise = null; });
+  }
+  return downloadPromise;
+}
+
 // Background initialization of yt-dlp
-downloadYtDlp().catch(console.error);
+ensureYtDlp().catch(console.error);
 
 // API Route to download MP3
 app.get("/api/download", async (req, res) => {
@@ -81,13 +92,20 @@ app.get("/api/download", async (req, res) => {
         return res.status(400).json({ error: "No URL provided." });
       }
 
-      // Check if yt-dlp is ready
-      if (!fs.existsSync(YT_DLP_PATH)) {
-        return res.status(503).json({ error: "Server is initializing download tools. Try again in a few seconds." });
-      }
-
       // Generate a unique ID for this download task
       const trackId = (req.query.taskId as string) || Math.random().toString(36).substring(7);
+
+      if (!conversionLogs.has(trackId)) {
+        conversionLogs.set(trackId, []);
+      }
+
+      // Check if yt-dlp is ready, if not, wait for it
+      if (!fs.existsSync(YT_DLP_PATH)) {
+        conversionLogs.get(trackId)?.push("Downloading required extraction tools (first time setup)...");
+        await ensureYtDlp();
+        conversionLogs.get(trackId)?.push("Tools initialization complete.");
+      }
+
       const outputFileTemplate = path.join(DOWNLOADS_DIR, `%(title)s-[${trackId}].%(ext)s`);
       
       // Get download preferences
