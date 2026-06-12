@@ -85,7 +85,7 @@ async function ensureYtDlp() {
 ensureYtDlp().catch(console.error);
 
 // API Route to process the video (yt-dlp)
-app.get("/api/process", async (req, res) => {
+app.get("/api/download", async (req, res) => {
     try {
       const url = req.query.url;
       if (!url || typeof url !== "string") {
@@ -256,44 +256,26 @@ app.get("/api/process", async (req, res) => {
       // e.g. "My Video Title-[abc1234].mp3" -> "My Video Title.mp3"
       const clientFileName = downloadedFile.replace(`-[${trackId}]`, '');
 
-      // Send the file to the client
-      // Send the readiness state to the client
-      res.json({
-        success: true,
-        trackId: trackId,
-        fileName: clientFileName,
-        serverFile: downloadedFile
+      // Send the file directly to the client
+      res.download(filePath, clientFileName, async (err) => {
+        if (err) {
+          console.error("Error sending file:", err);
+        }
+        // Cleanup after sending
+        try {
+          if (fs.existsSync(filePath)) {
+             fs.unlinkSync(filePath);
+          }
+        } catch (cleanupErr) {
+          console.error("Error cleaning up file:", cleanupErr);
+        }
       });
 
     } catch (error: any) {
       console.error("Download Error:", error);
+      conversionLogs.get(trackId)?.push(`ERROR: Failed to download and convert the video.`);
       res.status(500).json({ error: "Failed to download and convert the video.", details: error.message });
     }
-  });
-
-  // New endpoint to actually serve the file
-  app.get("/api/download", (req, res) => {
-    const serverFile = req.query.serverFile as string;
-    const clientFileName = req.query.fileName as string;
-
-    if (!serverFile || !clientFileName) {
-      return res.status(400).send("Missing file identifiers");
-    }
-
-    const filePath = path.join(DOWNLOADS_DIR, serverFile);
-    
-    if (!fs.existsSync(filePath)) {
-      return res.status(404).send("File not found or already downloaded");
-    }
-
-    res.download(filePath, clientFileName, (err) => {
-      if (err) console.error("Error sending file:", err);
-      try {
-        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-      } catch (e) {
-        console.error("Error cleaning up:", e);
-      }
-    });
   });
 
   export default app;

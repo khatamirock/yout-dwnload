@@ -35,7 +35,23 @@ export default function App() {
         const res = await fetch(`/api/logs?taskId=${taskId}`);
         if (res.ok) {
           const data = await res.json();
-          setLogs(data.logs || []);
+          const newLogs = data.logs || [];
+          setLogs(newLogs);
+          
+          if (status === 'loading') {
+            const hasError = newLogs.some((l: string) => l.includes('ERROR: yt-dlp wrapper process exited') || l.includes('Failed to download'));
+            const hasSuccess = newLogs.some((l: string) => l.includes('Process finished successfully.'));
+            
+            if (hasError) {
+               setStatus('error');
+               setErrorMessage('Download failed. See logs for details.');
+            } else if (hasSuccess) {
+               // The server has finished processing and is sending the file headers
+               setStatus('success');
+               setTimeout(() => setStatus('idle'), 3000);
+               setUrl('');
+            }
+          }
         }
       } catch (err) {
         // ignore log fetch errors
@@ -79,21 +95,22 @@ export default function App() {
         queryParams += `&format=${videoFormat}&quality=${videoQuality}`;
       }
 
-      const response = await fetch(`/api/process?${queryParams}`);
+      // Fire and forget via hidden iframe: let the browser handle the file stream downloading
+      const iframe = document.createElement('iframe');
+      iframe.style.display = 'none';
+      iframe.src = `/api/download?${queryParams}`;
+      document.body.appendChild(iframe);
       
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => null);
-        throw new Error(errorData?.error || `Server error: ${response.status}`);
-      }
-
-      const responseData = await response.json();
+      // We rely on the log polling interval (above) to detect success or failure 
+      // instead of awaiting the HTTP response, avoiding memory bloating before showing "Save as"
       
-      // Trigger native browser download directly
-      window.location.href = `/api/download?serverFile=${encodeURIComponent(responseData.serverFile)}&fileName=${encodeURIComponent(responseData.fileName)}`;
+      // Clean up iframe after a reasonably long time just in case
+      setTimeout(() => {
+        if (document.body.contains(iframe)) {
+          document.body.removeChild(iframe);
+        }
+      }, 30 * 60 * 1000);
 
-      setStatus('success');
-      setTimeout(() => setStatus('idle'), 3000);
-      setUrl('');
     } catch (error: any) {
       console.error(error);
       setStatus('error');
