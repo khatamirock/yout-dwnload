@@ -163,10 +163,11 @@ app.get("/api/download", async (req, res) => {
       
       if (type === 'audio') {
         // Keep EXACT audio arguments from the previous versions!
+        const audioBitrate = qualityParam === '32' ? '32K' : qualityParam === '64' ? '64K' : '128K';
         modeArgs = [
           "-x",
           "--audio-format", "mp3",
-          "--audio-quality", "128K"
+          "--audio-quality", audioBitrate
         ];
       } else {
         // Video mode arguments

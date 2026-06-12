@@ -16,6 +16,7 @@ export default function App() {
   const [type, setType] = useState<'audio' | 'video'>('audio');
   const [videoFormat, setVideoFormat] = useState<'mp4' | 'webm'>('mp4');
   const [videoQuality, setVideoQuality] = useState<'720' | '1080' | 'best'>('1080');
+  const [audioQuality, setAudioQuality] = useState<'32' | '64' | '128'>('128');
   
   // Logs states
   const [taskId, setTaskId] = useState<string | null>(null);
@@ -93,6 +94,8 @@ export default function App() {
       let queryParams = `url=${encodeURIComponent(url)}&taskId=${newTaskId}&type=${type}`;
       if (type === 'video') {
         queryParams += `&format=${videoFormat}&quality=${videoQuality}`;
+      } else {
+        queryParams += `&quality=${audioQuality}`;
       }
 
       // Fire and forget via hidden iframe: let the browser handle the file stream downloading
@@ -246,12 +249,33 @@ export default function App() {
               <div className="flex items-center space-x-2 text-red-500 bg-red-500/10 px-3 py-1 rounded">
                 <span>MP3</span>
               </div>
-              <div className="flex items-center space-x-2 opacity-50 cursor-not-allowed">
+              <div className="flex items-center space-x-2 opacity-50 cursor-not-allowed hidden sm:flex">
                 <span>WAV</span>
               </div>
-              <div className="h-4 w-[1px] bg-white/10"></div>
-              <div className="flex items-center space-x-2 text-white px-2 py-0.5 rounded bg-white/10">
-                <span>128K</span>
+              <div className="h-4 w-[1px] bg-white/10 hidden sm:block"></div>
+              {/* Audio Quality selection */}
+              <div className="flex space-x-2 p-1 bg-white/5 rounded-lg border border-white/10">
+                <button
+                  type="button"
+                  onClick={() => setAudioQuality('32')}
+                  className={`px-3 py-1 rounded transition-colors ${audioQuality === '32' ? 'bg-white/20 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
+                >
+                  32K
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAudioQuality('64')}
+                  className={`px-3 py-1 rounded transition-colors ${audioQuality === '64' ? 'bg-white/20 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
+                >
+                  64K
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAudioQuality('128')}
+                  className={`px-3 py-1 rounded transition-colors ${audioQuality === '128' ? 'bg-white/20 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
+                >
+                  128K
+                </button>
               </div>
             </div>
           ) : (
