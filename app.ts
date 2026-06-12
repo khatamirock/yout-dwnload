@@ -84,8 +84,8 @@ async function ensureYtDlp() {
 // Background initialization of yt-dlp
 ensureYtDlp().catch(console.error);
 
-// API Route to download MP3
-app.get("/api/download", async (req, res) => {
+// API Route to process the video (yt-dlp)
+app.get("/api/process", async (req, res) => {
     try {
       const url = req.query.url;
       if (!url || typeof url !== "string") {
@@ -257,24 +257,43 @@ app.get("/api/download", async (req, res) => {
       const clientFileName = downloadedFile.replace(`-[${trackId}]`, '');
 
       // Send the file to the client
-      res.download(filePath, clientFileName, async (err) => {
-        if (err) {
-          console.error("Error sending file:", err);
-        }
-        // Cleanup after sending
-        try {
-          if (fs.existsSync(filePath)) {
-             fs.unlinkSync(filePath);
-          }
-        } catch (cleanupErr) {
-          console.error("Error cleaning up file:", cleanupErr);
-        }
+      // Send the readiness state to the client
+      res.json({
+        success: true,
+        trackId: trackId,
+        fileName: clientFileName,
+        serverFile: downloadedFile
       });
 
     } catch (error: any) {
       console.error("Download Error:", error);
       res.status(500).json({ error: "Failed to download and convert the video.", details: error.message });
     }
+  });
+
+  // New endpoint to actually serve the file
+  app.get("/api/download", (req, res) => {
+    const serverFile = req.query.serverFile as string;
+    const clientFileName = req.query.fileName as string;
+
+    if (!serverFile || !clientFileName) {
+      return res.status(400).send("Missing file identifiers");
+    }
+
+    const filePath = path.join(DOWNLOADS_DIR, serverFile);
+    
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).send("File not found or already downloaded");
+    }
+
+    res.download(filePath, clientFileName, (err) => {
+      if (err) console.error("Error sending file:", err);
+      try {
+        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+      } catch (e) {
+        console.error("Error cleaning up:", e);
+      }
+    });
   });
 
   export default app;

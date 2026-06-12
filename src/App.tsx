@@ -79,40 +79,17 @@ export default function App() {
         queryParams += `&format=${videoFormat}&quality=${videoQuality}`;
       }
 
-      const response = await fetch(`/api/download?${queryParams}`);
+      const response = await fetch(`/api/process?${queryParams}`);
       
       if (!response.ok) {
         const errorData = await response.json().catch(() => null);
         throw new Error(errorData?.error || `Server error: ${response.status}`);
       }
 
-      // the response is an audio file, let's trigger download
-      const blob = await response.blob();
-      const downloadUrl = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.style.display = 'none';
-      a.href = downloadUrl;
+      const responseData = await response.json();
       
-      // Get filename from header if possible, else default
-      let filename = type === 'audio' ? 'audio.mp3' : `video.${videoFormat}`;
-      const contentDisposition = response.headers.get('content-disposition');
-      if (contentDisposition && contentDisposition.includes('filename=')) {
-        const matches = contentDisposition.match(/filename="?([^"]+)"?/);
-        if (matches && matches[1]) {
-          filename = matches[1];
-        } else {
-            // fallback generic parsing
-            const splits = contentDisposition.split('filename=');
-            if (splits[1]) {
-                filename = splits[1].replace(/['"]/g, '');
-            }
-        }
-      }
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(downloadUrl);
-      document.body.removeChild(a);
+      // Trigger native browser download directly
+      window.location.href = `/api/download?serverFile=${encodeURIComponent(responseData.serverFile)}&fileName=${encodeURIComponent(responseData.fileName)}`;
 
       setStatus('success');
       setTimeout(() => setStatus('idle'), 3000);
